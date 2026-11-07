@@ -27,21 +27,30 @@ def valid_scores(scores):
             and all(type(n) is int and 0 <= n <= 10000 for n in scores))
 
 
+def primary_role(character, fallback=None):
+    """One fixed primary role; old multi-role overrides use the first entry."""
+    for source in (character, fallback or {}):
+        if "roles" in source:
+            return next((role for role in source["roles"]
+                         if role in SCORE_ROLES or role == "damage"), None)
+    scores = character.get("role_scores", (fallback or {}).get("role_scores"))
+    if not valid_scores(scores) or max(scores) == 0:
+        return None
+    # Initial estimate only. CatalogStore persists it so later score sync cannot
+    # move the character between support/output pools. Curated roles take priority.
+    maximum = max(scores)
+    return next(role for role in ("support", "attack", "card", "tank")
+                if scores[SCORE_ROLES.index(role)] == maximum)
+
+
 def roles_for(character, fallback=None):
-    # An explicit override is authoritative, including an intentionally empty list.
-    if "roles" in character:
-        roles = set(character["roles"])
-    elif fallback is not None and "roles" in fallback:
-        roles = set(fallback["roles"])
-    else:
-        scores = character.get("role_scores", (fallback or {}).get("role_scores"))
-        if not valid_scores(scores) or max(scores) == 0:
-            return {"any"}
-        maximum = max(scores)
-        roles = {role for role, value in zip(SCORE_ROLES, scores) if value == maximum}
-    if roles & {"attack", "card"}:
-        roles.add("damage")
-    return roles | {"any"}
+    role = primary_role(character, fallback)
+    tags = {"any"}
+    if role:
+        tags.add(role)
+    if role in ("attack", "card"):
+        tags.add("damage")
+    return tags
 
 
 def parse_composition(text):

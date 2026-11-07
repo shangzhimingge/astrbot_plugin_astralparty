@@ -33,18 +33,20 @@ def test_invalid_syntax_is_not_silently_ignored(text):
         roles.parse_composition(text)
 
 
-def test_classification_keeps_ties_and_manual_overrides():
+def test_classification_is_exclusive_and_manual_overrides_are_authoritative():
     hybrid = {"role_scores": [15, 60, 60, 15]}
-    assert roles.roles_for(hybrid) == {"any", "card", "damage", "support"}
+    assert roles.roles_for(hybrid) == {"any", "support"}
     assert roles.roles_for(dict(hybrid, roles=["support"])) == {"any", "support"}
+    assert roles.roles_for(dict(hybrid, roles=["card"])) == {"any", "card", "damage"}
+    assert roles.roles_for(dict(hybrid, roles=["damage", "support"])) == {"any", "damage"}
     assert roles.roles_for(dict(hybrid, roles=[])) == {"any"}
     assert roles.roles_for({}) == {"any"}
-    assert roles.roles_for({}, hybrid) == {"any", "card", "damage", "support"}
+    assert roles.roles_for({}, hybrid) == {"any", "support"}
     assert roles.roles_for({}, {"roles": ["support"]}) == {"any", "support"}
 
 
-def test_overlapping_pools_do_not_consume_a_required_output():
-    pool = [{"id": "a", "roles": ["support", "damage"]},
+def test_legacy_multi_role_list_does_not_switch_to_fill_missing_output():
+    pool = [{"id": "a", "roles": ["damage", "support"]},
             {"id": "b", "roles": ["support"]},
             {"id": "c", "roles": ["damage"]},
             {"id": "d", "roles": ["damage"]}]
@@ -81,10 +83,65 @@ def test_old_cache_without_classification_uses_new_bundled_defaults(tmp_path):
     cached["synced_at"] = "2099-01-01T00:00:00+08:00"
     for c in cached["characters"]:
         c.pop("role_scores")
+        c.pop("roles")
     path = tmp_path / "catalog.json"
     catalog.atomic_save(path, cached)
     store = catalog.CatalogStore(path)
     assert len(store.team(composition="2辅2c")) == 4
+
+
+@pytest.mark.parametrize("old_cache", [False, True])
+def test_confirmed_roles_and_entire_roster_are_exclusive(tmp_path, old_cache):
+    path = tmp_path / "catalog.json"
+    if old_cache:
+        cached = catalog.load_json(catalog.BUNDLED_PATH)
+        cached["synced_at"] = "2099-01-01T00:00:00+08:00"
+        for c in cached["characters"]:
+            c.pop("roles")
+            c["role_scores"] = [15, 100, 100, 15]
+        catalog.atomic_save(path, cached)
+    store = catalog.CatalogStore(path)
+    by_name = {c["name"]: c for c in store.characters()}
+    assert roles.roles_for(by_name["远野汉娜"]) == {"any", "support"}
+    assert roles.roles_for(by_name["恋"]) == {"any", "support"}
+    assert roles.roles_for(by_name["梅加斯"]) == {"any", "card", "damage"}
+    for c in store.characters():
+        assert len(c["roles"]) == 1
+        assert not {"support", "damage"} <= roles.roles_for(c)
+    for composition in ("2辅2c", "1辅3c", "4c", "4辅"):
+        for _ in range(30):
+            team = store.team(composition=composition)
+            for c in team:
+                if c["name"] in ("远野汉娜", "恋"):
+                    assert c["assigned_role"] == "support"
+                if c["name"] == "梅加斯":
+                    assert c["assigned_role"] == "damage"
+
+
+def test_score_sync_never_changes_fixed_roles_and_new_estimate_is_persisted(tmp_path):
+    from test_catalog import pages
+    path = tmp_path / "catalog.json"
+    store = catalog.CatalogStore(path)
+    original = {c["id"]: c["roles"][:] for c in store.characters()}
+    candidate = copy.deepcopy(store.data)
+    candidate["characters"].append(dict(candidate["characters"][0], id="999", name="新角色"))
+    characters, maps = pages(candidate)
+    def fetch(url):
+        if url == catalog.ROLE_URL:
+            return score_html({**{cid: [100, 100, 100, 100] for cid in original},
+                               "999": [100, 15, 15, 15]})
+        return characters if url == catalog.CHARACTER_URL else maps
+    assert "更新成功" in asyncio.run(store.refresh(fetch))
+    assert {c["id"]: c["roles"] for c in store.characters() if c["id"] in original} == original
+    new = next(c for c in store.characters() if c["id"] == "999")
+    assert new["roles"] == ["attack"]
+    reloaded = catalog.CatalogStore(path)
+    def changed_scores(url):
+        return score_html({"999": [15, 15, 100, 15]}) if url == catalog.ROLE_URL else fetch(url)
+    assert "更新成功" in asyncio.run(reloaded.refresh(changed_scores))
+    new = next(c for c in reloaded.characters() if c["id"] == "999")
+    assert new["role_scores"] == [15, 15, 100, 15]
+    assert roles.roles_for(new) == {"any", "attack", "damage"}
 
 
 def score_html(rows):

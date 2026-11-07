@@ -14,10 +14,10 @@ from urllib.parse import urlparse
 
 try:
     from .roles import (CompositionError, ROLE_LABELS, SCORE_ROLES, draw_composition,
-                        parse_role_scores, roles_for, valid_scores)
+                        parse_role_scores, primary_role, roles_for, valid_scores)
 except ImportError:  # Standalone maintenance script.
     from roles import (CompositionError, ROLE_LABELS, SCORE_ROLES, draw_composition,
-                       parse_role_scores, roles_for, valid_scores)
+                       parse_role_scores, primary_role, roles_for, valid_scores)
 
 CST = timezone(timedelta(hours=8))
 WIKI_BASE = "https://wiki.biligame.com/starengine/"
@@ -227,6 +227,14 @@ class CatalogStore:
                     self.data, self.source = cached, "本地缓存"
             except (OSError, ValueError) as exc:
                 self.last_error = str(exc)
+        for character in self.data["characters"]:
+            self._fix_role(character, self.role_defaults.get(character["id"]))
+
+    @staticmethod
+    def _fix_role(character, fallback=None):
+        role = primary_role(character, fallback)
+        if role or "roles" in character or "roles" in (fallback or {}):
+            character["roles"] = [role] if role else []
 
     def characters(self, now=None):
         when = (now or now_cst()).astimezone(CST).strftime("%Y%m%d%H%M")
@@ -299,6 +307,7 @@ class CatalogStore:
                             character[key] = role_data[key]
                     if character["id"] in scores:
                         character["role_scores"] = scores[character["id"]]
+                    self._fix_role(character)
                 old_maps = {m["id"]: m for m in load_json(self.bundled_path)["maps"]}
                 for game_map in self.data["maps"]:
                     old_maps[game_map["id"]] = old_maps.get(game_map["id"], {}) | game_map
