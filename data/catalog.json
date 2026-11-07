@@ -195,8 +195,9 @@
         100
       ],
       "roles": [
-        "tank"
-      ]
+        "support"
+      ],
+      "role_revision": 1
     },
     {
       "id": "113",
@@ -371,8 +372,9 @@
         100
       ],
       "roles": [
-        "tank"
-      ]
+        "support"
+      ],
+      "role_revision": 1
     },
     {
       "id": "124",
@@ -387,8 +389,9 @@
         15
       ],
       "roles": [
-        "attack"
-      ]
+        "support"
+      ],
+      "role_revision": 1
     },
     {
       "id": "125",

@@ -15,7 +15,7 @@ ALIASES = {"辅助": "support", "辅": "support", "奶": "support",
            "卡牌": "card", "卡": "card", "坦克": "tank", "生存": "tank",
            "坦": "tank", "t": "tank", "自由": "any", "任意": "any", "随机": "any", "任": "any"}
 TOKEN = re.compile(r"(\d+)(" + "|".join(sorted(ALIASES, key=len, reverse=True)) + ")")
-HELP = "组合示例：2辅2c、1辅3c、1辅1坦2c、4c；人数合计必须为4"
+HELP = "组合示例：2辅2c、1辅3c、4c；人数合计必须为4"
 
 
 class CompositionError(ValueError):

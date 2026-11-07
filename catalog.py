@@ -88,6 +88,10 @@ def validate(data):
                     raise CatalogError("角色上线时间无效") from exc
                 if "role_scores" in entry and not valid_scores(entry["role_scores"]):
                     raise CatalogError("角色职业分值无效")
+                if "role_revision" in entry and (
+                    type(entry["role_revision"]) is not int or not 0 <= entry["role_revision"] <= 10000
+                ):
+                    raise CatalogError("角色定位修订号无效")
                 if "roles" in entry and (
                     not isinstance(entry["roles"], list)
                     or any(not isinstance(role, str) or role not in ROLE_LABELS for role in entry["roles"])
@@ -232,6 +236,11 @@ class CatalogStore:
 
     @staticmethod
     def _fix_role(character, fallback=None):
+        # Apply a shipped classification correction even when a newer cache
+        # still contains the old fixed role. Equal revisions retain local edits.
+        if fallback and fallback.get("role_revision", 0) > character.get("role_revision", 0):
+            character["roles"] = fallback["roles"][:]
+            character["role_revision"] = fallback["role_revision"]
         role = primary_role(character, fallback)
         if role or "roles" in character or "roles" in (fallback or {}):
             character["roles"] = [role] if role else []
@@ -302,7 +311,7 @@ class CatalogStore:
                     if old.get("avatar_url"):
                         character["avatar_url"] = old["avatar_url"]
                     role_data = bundled.get(character["id"], {}) | previous.get(character["id"], {})
-                    for key in ("role_scores", "roles"):
+                    for key in ("role_scores", "roles", "role_revision"):
                         if key in role_data:
                             character[key] = role_data[key]
                     if character["id"] in scores:

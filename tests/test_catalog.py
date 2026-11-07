@@ -73,7 +73,7 @@ def test_future_release_at_china_time(store):
 def test_real_markup_shape_round_trip(store):
     data = parse_wiki(*pages(store.data))
     assert data["characters"] == [
-        {k: v for k, v in c.items() if k not in ("role_scores", "roles")}
+        {k: v for k, v in c.items() if k not in ("role_scores", "roles", "role_revision")}
         for c in store.data["characters"]
     ]
     assert len(data["maps"]) == 19  # image and text anchors are deduplicated

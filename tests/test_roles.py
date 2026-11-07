@@ -66,7 +66,7 @@ def test_impossible_shared_pool_returns_error_instead_of_duplicates():
         roles.draw_composition(pool, "2辅2c")
 
 
-@pytest.mark.parametrize("composition", ["2辅2c", "1辅3c", "1辅1坦2c", "4c", "4辅", "4任", "2攻2卡"])
+@pytest.mark.parametrize("composition", ["2辅2c", "1辅3c", "4c", "4辅", "4任", "2攻2卡"])
 def test_current_roster_satisfies_requested_slots_without_mutation(tmp_path, composition):
     store = catalog.CatalogStore(tmp_path / "catalog.json")
     before = copy.deepcopy(store.data)
@@ -102,8 +102,8 @@ def test_confirmed_roles_and_entire_roster_are_exclusive(tmp_path, old_cache):
         catalog.atomic_save(path, cached)
     store = catalog.CatalogStore(path)
     by_name = {c["name"]: c for c in store.characters()}
-    assert roles.roles_for(by_name["远野汉娜"]) == {"any", "support"}
-    assert roles.roles_for(by_name["恋"]) == {"any", "support"}
+    for name in ("远野汉娜", "恋", "璐璐", "姬梦朝", "照"):
+        assert roles.roles_for(by_name[name]) == {"any", "support"}
     assert roles.roles_for(by_name["梅加斯"]) == {"any", "card", "damage"}
     for c in store.characters():
         assert len(c["roles"]) == 1
@@ -112,10 +112,51 @@ def test_confirmed_roles_and_entire_roster_are_exclusive(tmp_path, old_cache):
         for _ in range(30):
             team = store.team(composition=composition)
             for c in team:
-                if c["name"] in ("远野汉娜", "恋"):
+                if c["name"] in ("远野汉娜", "恋", "璐璐", "姬梦朝", "照"):
                     assert c["assigned_role"] == "support"
                 if c["name"] == "梅加斯":
                     assert c["assigned_role"] == "damage"
+
+
+def test_revised_support_roles_replace_old_fixed_cache_and_are_reachable(tmp_path):
+    cached = catalog.load_json(catalog.BUNDLED_PATH)
+    cached["synced_at"] = "2099-01-01T00:00:00+08:00"
+    targets = {"璐璐", "姬梦朝", "照"}
+    for c in cached["characters"]:
+        if c["name"] in targets:
+            c["roles"] = ["attack" if c["name"] == "照" else "tank"]
+            c.pop("role_revision")
+    path = tmp_path / "catalog.json"
+    catalog.atomic_save(path, cached)
+    store = catalog.CatalogStore(path)
+    supports = [c for c in store.characters() if c["name"] in targets]
+    assert len(supports) == 3
+    assert all(roles.roles_for(c) == {"any", "support"} for c in supports)
+    assert all(c["role_revision"] == 1 for c in supports)
+    # A constrained pool proves all three can fill support slots without relying
+    # on a lucky random draw, and none can fill a damage slot.
+    damage = next(c for c in store.characters() if c["name"] == "梅加斯")
+    pool = supports + [damage]
+    assert {c["name"] for c in roles.draw_composition(pool, "3辅1c")[:3]} == targets
+    with pytest.raises(roles.CompositionError, match="无法组成"):
+        roles.draw_composition(pool, "2辅2c")
+    catalog.atomic_save(path, store.data)
+    assert all(c["roles"] == ["support"] for c in catalog.CatalogStore(path).characters()
+               if c["name"] in targets)
+
+
+def test_tank_composition_reports_empty_pool_without_reclassifying_supports(tmp_path):
+    store = catalog.CatalogStore(tmp_path / "catalog.json")
+    with pytest.raises(catalog.CatalogError, match="无法组成"):
+        store.team(composition="1辅1坦2c")
+
+
+@pytest.mark.parametrize("revision", [-1, True, "1"])
+def test_invalid_role_revisions_are_rejected(revision):
+    data = catalog.load_json(catalog.BUNDLED_PATH)
+    data["characters"][0]["role_revision"] = revision
+    with pytest.raises(catalog.CatalogError, match="修订号"):
+        catalog.validate(data)
 
 
 def test_score_sync_never_changes_fixed_roles_and_new_estimate_is_persisted(tmp_path):
